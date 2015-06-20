@@ -38,13 +38,17 @@ should_send_as_subreddit = False
 disable_unregistered_accounts = False
 # The Subject of the message to send users when their post has been removed.
 removed_subject_post = None
+# The size at which at one point will clear the list of posts saved in ram.  It should be left at default.
+max_threads_size = 1000
 
+# -----------------------------------------------------------------------------------------------------------------------------
 
 import mysql.connector
 import praw
-import sys
+import sys, traceback
 import time
 import random
+from datetime import datetime
 
 cnx = None
 r = None
@@ -76,11 +80,15 @@ def log_into_reddit():
 
 def main_loop():
     log('Polling users to see if they are trying to register an account.')
-    poll_users()
-    if disable_unregistered_accounts:
-        log('Checking to see if any users have posted that shouldn\'t be allowed to.')
-        poll_subreddit()
-    
+    try:
+        poll_users()
+        if disable_unregistered_accounts:
+            log('Checking to see if any users have posted that shouldn\'t be allowed to.')
+            poll_subreddit()
+    except:
+        logException()
+        
+        
 # This method is used to send messages to reddit users in order to get them to confirm
 def poll_users():
     try:
@@ -106,7 +114,7 @@ def poll_users():
         cnx.commit()
         cursor.close()
 
-recent_posts = [] # This doesn't need to really be cleared, it will never ever get big enough. I'll let restarts of the script handle this.
+recent_posts = set()
 
 def poll_subreddit():
     sub = r.get_subreddit(subreddit)
@@ -129,15 +137,28 @@ def poll_subreddit():
             finally:
                 cnx.commit()
                 cursor.close()
+                
+# This method will clear out recent_posts once it get too large
+def handle_clear():
+    size = len(recent_posts)
+    if size > max_threads_size:
+        recent_posts.clear()
+                
+def logException():
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    msg = ['*** print_exc:', traceback.format_exc(), '*** tb_lineno: {0}'.format(exc_traceback.tb_lineno)]
+    log.debug('\n'.join(msg))
     
 if __name__ == '__main__':
     if not check_mysql_connection():
         sys.exit(0)
     log_into_reddit()
     while True:
-        main_loop()
+        main_loop() 
+        handle_clear()
+        
         if debug:
             log("Pausing script.")
-        time.sleep(reddit_Seconds_Between_Messages * 1)
+        time.sleep(reddit_Seconds_Between_Messages)
         if debug:
-            log("Unpausing script.")
+            log("Resuming script.")
